@@ -2,12 +2,17 @@
 # PETRONAS-STYLE RESPONSIVE DASHBOARD (Streamlit)
 # Author: Adrian Anthony A/L R. Vikneswaran (UTP)
 # ============================================================
+try:
+    import joblib
+except ModuleNotFoundError:
+    import subprocess
+    subprocess.run(["pip", "install", "joblib"])
+    import joblib
 
 import streamlit as st
 import pandas as pd
 import numpy as np
 import os
-import joblib
 import seaborn as sns
 import matplotlib.pyplot as plt
 import plotly.express as px
