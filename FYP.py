@@ -102,7 +102,7 @@ def save_prediction_to_excel(record: dict, excel_path: str = PRED_EXCEL_PATH):
 # LOAD DATA & MODEL
 # ----------------------------------------
 data_path = "digital_wellbeing_dataset_binned.csv"
-model_path = "RandomForest_best_pipeline.joblib"
+model_path = "RandomForest_user_pipeline.joblib"
 
 df = pd.read_csv(data_path)
 if os.path.exists(model_path):
