@@ -108,7 +108,7 @@ df = pd.read_csv(data_path)
 if os.path.exists(model_path):
     model = joblib.load(model_path)
 else:
-    st.error("⚠️ Model file not found! Please make sure RandomForest_best_pipeline.joblib is in the same folder.")
+    st.error("⚠️ Model file not found! Please make sure RandomForest_user_pipeline.joblib is in the same folder.")
     st.stop()
 
 target_col = "mh_risk"
