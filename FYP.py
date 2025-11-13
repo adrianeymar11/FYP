@@ -3,16 +3,16 @@
 # Author: Adrian Anthony A/L R. Vikneswaran (UTP)
 # ============================================================
 
-
 import streamlit as st
 import pandas as pd
 import numpy as np
 import os
+import joblib
 import seaborn as sns
 import matplotlib.pyplot as plt
-import joblib
 import plotly.express as px
 from sklearn.metrics import confusion_matrix, classification_report, accuracy_score
+from datetime import datetime  # <-- added for timestamp
 
 # ----------------------------------------
 # PAGE CONFIGURATION
@@ -73,10 +73,30 @@ st.markdown("""
 st.markdown("""
 <div style='text-align:center;'>
     <h1>🧠 Digital Wellbeing & Mental Health Risk Dashboard</h1>
-    <p style='font-size:18px; color:#475569;'  Universiti Teknologi PETRONAS</p>
+    <p style='font-size:18px; color:#475569;'>Universiti Teknologi PETRONAS</p>
     <hr style='border: 1px solid #CCE5E9;'>
 </div>
 """, unsafe_allow_html=True)
+
+# ----------------------------------------
+# EXCEL LOGGING (BACKEND ONLY)
+# ----------------------------------------
+PRED_EXCEL_PATH = "dashboard_predictions.xlsx"
+
+def save_prediction_to_excel(record: dict, excel_path: str = PRED_EXCEL_PATH):
+    """Append a single prediction record to an Excel file (backend only)."""
+    df_new = pd.DataFrame([record])
+
+    if os.path.exists(excel_path):
+        try:
+            df_existing = pd.read_excel(excel_path)
+            df_out = pd.concat([df_existing, df_new], ignore_index=True)
+        except Exception:
+            df_out = df_new
+    else:
+        df_out = df_new
+
+    df_out.to_excel(excel_path, index=False, engine="openpyxl")
 
 # ----------------------------------------
 # LOAD DATA & MODEL
@@ -125,9 +145,15 @@ with tabs[0]:
     st.header("📘 Dataset Overview")
     st.write(f"Dataset shape: **{df.shape[0]} rows × {df.shape[1]} columns**")
     st.dataframe(df.head(), use_container_width=True)
+
     st.subheader("Class Distribution")
-    fig = px.pie(df, names=target_col, title="Mental Health Risk Distribution", hole=0.4,
-                 color_discrete_sequence=px.colors.sequential.Teal)
+    fig = px.pie(
+        df,
+        names=target_col,
+        title="Mental Health Risk Distribution",
+        hole=0.4,
+        color_discrete_sequence=px.colors.sequential.Teal
+    )
     st.plotly_chart(fig, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -155,8 +181,14 @@ with tabs[2]:
         importances = model.named_steps['clf'].feature_importances_
         feat_df = pd.DataFrame({'Feature': feature_names, 'Importance': importances})
         feat_df = feat_df.sort_values('Importance', ascending=False).head(15)
-        fig2 = px.bar(feat_df, x='Importance', y='Feature', orientation='h', color='Importance',
-                      color_continuous_scale='Tealgrn')
+        fig2 = px.bar(
+            feat_df,
+            x='Importance',
+            y='Feature',
+            orientation='h',
+            color='Importance',
+            color_continuous_scale='Tealgrn'
+        )
         st.plotly_chart(fig2, use_container_width=True)
     except Exception as e:
         st.warning(f"Feature importance unavailable: {e}")
@@ -186,65 +218,82 @@ with tabs[3]:
         st.dataframe(pd.DataFrame(report).transpose(), use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # -------------------------------
-    # TAB 5: PREDICTION PANEL
-    # -------------------------------
-    with tabs[4]:
-        st.header("🤖 Prediction Panel")
-        st.markdown("Provide your details below to predict mental health risk.")
+# ----------------------------------------
+# TAB 5: PREDICTION PANEL (with backend Excel logging)
+# ----------------------------------------
+with tabs[4]:
+    st.markdown("<div class='main-card'>", unsafe_allow_html=True)
+    st.header("🤖 Prediction Panel")
+    st.markdown("Provide your details below to predict mental health risk.")
 
-        # Original features used in training
-        original_features = [
-            'Daily_Screen_Time_Hours',
-            'Phone_Unlocks_Per_Day',
-            'Social_Media_Usage_Hours',
-            'Gaming_Usage_Hours',
-            'Streaming_Usage_Hours',
-            'Messaging_Usage_Hours',
-            'Sleep_Hours',
-            'Physical_Activity_Hours',
-            'Stress_Level',
-            'Self_Reported_Addiction_Level'
-        ]
+    # Original features used in training
+    original_features = [
+        'Daily_Screen_Time_Hours',
+        'Phone_Unlocks_Per_Day',
+        'Social_Media_Usage_Hours',
+        'Gaming_Usage_Hours',
+        'Streaming_Usage_Hours',
+        'Messaging_Usage_Hours',
+        'Sleep_Hours',
+        'Physical_Activity_Hours',
+        'Stress_Level',
+        'Self_Reported_Addiction_Level'
+    ]
 
-        user_input = {}
-        col1, col2 = st.columns(2)
+    user_input = {}
+    col1, col2 = st.columns(2)
 
-        for i, col in enumerate(original_features):
-            if df[col].dtype in ['float64', 'int64']:
-                min_val = float(df[col].min())
-                max_val = float(df[col].max())
-                default_val = float(df[col].mean())
-                if i % 2 == 0:
-                    user_input[col] = col1.slider(col, min_val, max_val, default_val)
-                else:
-                    user_input[col] = col2.slider(col, min_val, max_val, default_val)
+    for i, col in enumerate(original_features):
+        if df[col].dtype in ['float64', 'int64']:
+            min_val = float(df[col].min())
+            max_val = float(df[col].max())
+            default_val = float(df[col].mean())
+            if i % 2 == 0:
+                user_input[col] = col1.slider(col, min_val, max_val, default_val)
             else:
-                options = df[col].dropna().unique().tolist()
-                if i % 2 == 0:
-                    user_input[col] = col1.selectbox(col, options)
-                else:
-                    user_input[col] = col2.selectbox(col, options)
-
-        if st.button("🔍 Predict Mental Health Risk"):
-            user_df = pd.DataFrame([user_input])
-            user_df = align_features(user_df, model)  # Align with model pipeline
-            prediction = model.predict(user_df)[0]
-            probs = model.predict_proba(user_df)[0]
-
-            st.markdown(f"#### Predicted Mental Health Risk Level: **{prediction}**")
-            st.write(f"Prediction probabilities: Low={probs[0]:.2f}, Medium={probs[1]:.2f}, High={probs[2]:.2f}")
-
-            # Risk message
-            if prediction == 'High':
-                st.error(
-                    "⚠️ High risk detected. Consider seeking professional support or adjusting screen time habits.")
-            elif prediction == 'Medium':
-                st.warning("🟡 Moderate risk detected. Maintain healthy sleep and activity balance.")
+                user_input[col] = col2.slider(col, min_val, max_val, default_val)
+        else:
+            options = df[col].dropna().unique().tolist()
+            if i % 2 == 0:
+                user_input[col] = col1.selectbox(col, options)
             else:
-                st.success("🟢 Low risk detected. Keep up balanced digital habits!")
+                user_input[col] = col2.selectbox(col, options)
 
+    if st.button("🔍 Predict Mental Health Risk"):
+        user_df = pd.DataFrame([user_input])
+        user_df_aligned = align_features(user_df.copy(), model)
+        prediction = model.predict(user_df_aligned)[0]
+        probs = model.predict_proba(user_df_aligned)[0]
 
+        st.markdown(f"#### Predicted Mental Health Risk Level: **{prediction}**")
+        # Assuming order [Low, Medium, High]
+        st.write(f"Prediction probabilities: Low={probs[0]:.2f}, Medium={probs[1]:.2f}, High={probs[2]:.2f}")
+
+        # Risk message
+        if prediction == 'High':
+            st.error("⚠️ High risk detected. Consider seeking professional support or adjusting screen time habits.")
+        elif prediction == 'Medium':
+            st.warning("🟡 Moderate risk detected. Maintain healthy sleep and activity balance.")
+        else:
+            st.success("🟢 Low risk detected. Keep up balanced digital habits!")
+
+        # -----------------------------
+        # 📊 BACKEND EXCEL LOGGING
+        # -----------------------------
+        proba_dict = dict(zip(model.classes_, probs))
+
+        record = {
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "prediction": prediction,
+        }
+        # Add raw user inputs
+        record.update(user_input)
+        # Add class probabilities
+        for cls_name, p in proba_dict.items():
+            record[f"proba_{cls_name}"] = round(float(p), 6)
+
+        # Save silently to Excel (user does NOT see this file)
+        save_prediction_to_excel(record)
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -259,3 +308,4 @@ st.markdown("""
 </div>
 ---
 """, unsafe_allow_html=True)
+
