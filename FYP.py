@@ -79,12 +79,12 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ----------------------------------------
-# EXCEL LOGGING (BACKEND ONLY)
+# BACKEND EXCEL LOGGING
 # ----------------------------------------
 PRED_EXCEL_PATH = "dashboard_predictions.xlsx"
 
 def save_prediction_to_excel(record: dict, excel_path: str = PRED_EXCEL_PATH):
-    """Append a single prediction record to an Excel file (backend only)."""
+    """Append a prediction record to an Excel file (backend only, invisible to user)."""
     df_new = pd.DataFrame([record])
 
     if os.path.exists(excel_path):
@@ -102,13 +102,13 @@ def save_prediction_to_excel(record: dict, excel_path: str = PRED_EXCEL_PATH):
 # LOAD DATA & MODEL
 # ----------------------------------------
 data_path = "digital_wellbeing_dataset_binned.csv"
-model_path = "RandomForest_user_pipeline.joblib"
+model_path = "RandomForest_best_pipeline.joblib"
 
 df = pd.read_csv(data_path)
 if os.path.exists(model_path):
     model = joblib.load(model_path)
 else:
-    st.error("⚠️ Model file not found! Please make sure RandomForest_user_pipeline.joblib is in the same folder.")
+    st.error("⚠️ Model file not found! Please make sure RandomForest_best_pipeline.joblib is in this folder.")
     st.stop()
 
 target_col = "mh_risk"
@@ -137,96 +137,63 @@ tabs = st.tabs([
     "🤖 Prediction Panel"
 ])
 
-# ----------------------------------------
 # TAB 1: Dataset Overview
-# ----------------------------------------
 with tabs[0]:
     st.markdown("<div class='main-card'>", unsafe_allow_html=True)
     st.header("📘 Dataset Overview")
-    st.write(f"Dataset shape: **{df.shape[0]} rows × {df.shape[1]} columns**")
     st.dataframe(df.head(), use_container_width=True)
 
     st.subheader("Class Distribution")
-    fig = px.pie(
-        df,
-        names=target_col,
-        title="Mental Health Risk Distribution",
-        hole=0.4,
-        color_discrete_sequence=px.colors.sequential.Teal
-    )
+    fig = px.pie(df, names=target_col, hole=0.4)
     st.plotly_chart(fig, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ----------------------------------------
-# TAB 2: Correlation Analysis
-# ----------------------------------------
+# TAB 2: Correlation
 with tabs[1]:
     st.markdown("<div class='main-card'>", unsafe_allow_html=True)
     st.header("📊 Correlation Analysis")
-    numeric_df = df.select_dtypes(include=['int64', 'float64'])
-    corr = numeric_df.corr()
+    corr = df.corr(numeric_only=True)
     fig, ax = plt.subplots(figsize=(10, 6))
-    sns.heatmap(corr, annot=True, cmap='BuGn', fmt=".2f", linewidths=0.5)
+    sns.heatmap(corr, annot=True, cmap="BuGn")
     st.pyplot(fig)
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ----------------------------------------
 # TAB 3: Feature Importance
-# ----------------------------------------
 with tabs[2]:
     st.markdown("<div class='main-card'>", unsafe_allow_html=True)
-    st.header("📈 Feature Importance (Random Forest)")
-    try:
-        feature_names = model.named_steps['preproc'].get_feature_names_out()
-        importances = model.named_steps['clf'].feature_importances_
-        feat_df = pd.DataFrame({'Feature': feature_names, 'Importance': importances})
-        feat_df = feat_df.sort_values('Importance', ascending=False).head(15)
-        fig2 = px.bar(
-            feat_df,
-            x='Importance',
-            y='Feature',
-            orientation='h',
-            color='Importance',
-            color_continuous_scale='Tealgrn'
-        )
-        st.plotly_chart(fig2, use_container_width=True)
-    except Exception as e:
-        st.warning(f"Feature importance unavailable: {e}")
+    st.header("📈 Feature Importance")
+    feat_names = model.named_steps['preproc'].get_feature_names_out()
+    feat_vals = model.named_steps['clf'].feature_importances_
+    feat_df = pd.DataFrame({"Feature": feat_names, "Importance": feat_vals})
+    feat_df = feat_df.sort_values("Importance", ascending=False).head(15)
+    fig = px.bar(feat_df, x="Importance", y="Feature", orientation="h")
+    st.plotly_chart(fig, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ----------------------------------------
 # TAB 4: Model Evaluation
-# ----------------------------------------
 with tabs[3]:
     st.markdown("<div class='main-card'>", unsafe_allow_html=True)
     st.header("🧮 Model Evaluation")
-    if target_col in df.columns:
-        X = df.drop(columns=[target_col])
-        y_true = df[target_col]
-        X = align_features(X, model)
-        y_pred = model.predict(X)
-        acc = accuracy_score(y_true, y_pred)
-        st.metric(label="Model Accuracy", value=f"{acc*100:.2f}%")
 
-        cm = confusion_matrix(y_true, y_pred)
-        fig3, ax3 = plt.subplots(figsize=(6, 4))
-        sns.heatmap(cm, annot=True, cmap='crest', fmt='g')
-        plt.xlabel('Predicted'); plt.ylabel('Actual'); plt.title('Confusion Matrix')
-        st.pyplot(fig3)
+    X = align_features(df.drop(columns=[target_col]), model)
+    y_true = df[target_col]
+    y_pred = model.predict(X)
 
-        report = classification_report(y_true, y_pred, output_dict=True)
-        st.dataframe(pd.DataFrame(report).transpose(), use_container_width=True)
+    st.metric("Model Accuracy", f"{accuracy_score(y_true, y_pred)*100:.2f}%")
+
+    cm = confusion_matrix(y_true, y_pred)
+    fig, ax = plt.subplots()
+    sns.heatmap(cm, annot=True, cmap="crest", fmt="g")
+    st.pyplot(fig)
+
+    st.dataframe(pd.DataFrame(classification_report(y_true, y_pred, output_dict=True)))
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ----------------------------------------
-# TAB 5: PREDICTION PANEL (with backend Excel logging)
-# ----------------------------------------
+# TAB 5: Prediction Panel
 with tabs[4]:
     st.markdown("<div class='main-card'>", unsafe_allow_html=True)
     st.header("🤖 Prediction Panel")
-    st.markdown("Provide your details below to predict mental health risk.")
 
-    # Original features used in training
     original_features = [
         'Daily_Screen_Time_Hours',
         'Phone_Unlocks_Per_Day',
@@ -244,20 +211,13 @@ with tabs[4]:
     col1, col2 = st.columns(2)
 
     for i, col in enumerate(original_features):
-        if df[col].dtype in ['float64', 'int64']:
-            min_val = float(df[col].min())
-            max_val = float(df[col].max())
-            default_val = float(df[col].mean())
-            if i % 2 == 0:
-                user_input[col] = col1.slider(col, min_val, max_val, default_val)
-            else:
-                user_input[col] = col2.slider(col, min_val, max_val, default_val)
+        if df[col].dtype in ['int64', 'float64']:
+            min_v, max_v, def_v = df[col].min(), df[col].max(), df[col].mean()
+            widget = col1.slider if i % 2 == 0 else col2.slider
+            user_input[col] = widget(col, float(min_v), float(max_v), float(def_v))
         else:
-            options = df[col].dropna().unique().tolist()
-            if i % 2 == 0:
-                user_input[col] = col1.selectbox(col, options)
-            else:
-                user_input[col] = col2.selectbox(col, options)
+            widget = col1.selectbox if i % 2 == 0 else col2.selectbox
+            user_input[col] = widget(col, df[col].unique().tolist())
 
     if st.button("🔍 Predict Mental Health Risk"):
         user_df = pd.DataFrame([user_input])
@@ -265,47 +225,37 @@ with tabs[4]:
         prediction = model.predict(user_df_aligned)[0]
         probs = model.predict_proba(user_df_aligned)[0]
 
-        st.markdown(f"#### Predicted Mental Health Risk Level: **{prediction}**")
-        # Assuming order [Low, Medium, High]
-        st.write(f"Prediction probabilities: Low={probs[0]:.2f}, Medium={probs[1]:.2f}, High={probs[2]:.2f}")
+        st.subheader(f"Predicted Risk: {prediction}")
 
-        # Risk message
-        if prediction == 'High':
-            st.error("⚠️ High risk detected. Consider seeking professional support or adjusting screen time habits.")
-        elif prediction == 'Medium':
-            st.warning("🟡 Moderate risk detected. Maintain healthy sleep and activity balance.")
+        # Risk Message
+        if prediction == "High":
+            st.error("⚠️ High Risk — Seek professional guidance and review your habits.")
+        elif prediction == "Medium":
+            st.warning("🟡 Moderate Risk — Balance your digital and daily routines.")
         else:
-            st.success("🟢 Low risk detected. Keep up balanced digital habits!")
+            st.success("🟢 Low Risk — Your digital habits are healthy!")
 
-        # -----------------------------
-        # 📊 BACKEND EXCEL LOGGING
-        # -----------------------------
-        proba_dict = dict(zip(model.classes_, probs))
-
+        # Backend Excel Logging
         record = {
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            **user_input,
             "prediction": prediction,
+            "proba_low": probs[0],
+            "proba_medium": probs[1],
+            "proba_high": probs[2]
         }
-        # Add raw user inputs
-        record.update(user_input)
-        # Add class probabilities
-        for cls_name, p in proba_dict.items():
-            record[f"proba_{cls_name}"] = round(float(p), 6)
-
-        # Save silently to Excel (user does NOT see this file)
         save_prediction_to_excel(record)
 
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ----------------------------------------
-# FOOTER
+# FOOTER (UPDATED)
 # ----------------------------------------
 st.markdown("""
 ---
 <div style='text-align:center; font-size:14px; color:#475569;'>
-    📊 Dashboard created by <strong>Adrian Anthony (UTP)</strong> for PETRONAS Digital Skunkworks Project<br>
+    📊 Dashboard created by <strong>Adrian Anthony (UTP)</strong><br>
     Built with <strong>Streamlit</strong> | Random Forest Model | Responsive UI Design
 </div>
 ---
 """, unsafe_allow_html=True)
-
