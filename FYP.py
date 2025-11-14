@@ -116,15 +116,38 @@ target_col = "mh_risk"
 # ----------------------------------------
 # ALIGNMENT FUNCTION
 # ----------------------------------------
-def align_features(input_df, model):
+def align_features(input_df: pd.DataFrame, model) -> pd.DataFrame:
+    """
+    Align input_df columns to what the trained pipeline expects.
+    - Adds any missing columns as 0
+    - Orders columns exactly as in training
+    If anything fails, returns input_df unchanged.
+    """
     try:
-        expected = model.named_steps['preproc'].feature_names_in_
-        for f in expected:
-            if f not in input_df.columns:
-                input_df[f] = 0
-        return input_df[expected]
+        # Works for sklearn Pipeline with a 'preproc' step (ColumnTransformer)
+        preproc = model.named_steps.get('preproc', None)
+        if preproc is None:
+            return input_df
+
+        expected = getattr(preproc, "feature_names_in_", None)
+        if expected is None:
+            # Older sklearn: feature_names_in_ may not exist
+            return input_df
+
+        expected = list(expected)
+
+        # Add missing columns with 0
+        for col in expected:
+            if col not in input_df.columns:
+                input_df[col] = 0
+
+        # Drop any extra columns the model doesn't know about
+        aligned = input_df[expected].copy()
+        return aligned
     except Exception:
+        # In worst case, just return as-is
         return input_df
+
 
 # ----------------------------------------
 # TAB SETUP
@@ -170,24 +193,42 @@ with tabs[2]:
     st.plotly_chart(fig, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
+
+# ----------------------------------------
 # TAB 4: Model Evaluation
+# ----------------------------------------
 with tabs[3]:
     st.markdown("<div class='main-card'>", unsafe_allow_html=True)
     st.header("🧮 Model Evaluation")
 
-    X = align_features(df.drop(columns=[target_col]), model)
-    y_true = df[target_col]
-    y_pred = model.predict(X)
+    if target_col in df.columns:
+        # No extra indentation here 👇
+        X = df.drop(columns=[target_col])
+        y_true = df[target_col]
 
-    st.metric("Model Accuracy", f"{accuracy_score(y_true, y_pred)*100:.2f}%")
+        # Align features BEFORE predict
+        X_aligned = align_features(X, model)
 
-    cm = confusion_matrix(y_true, y_pred)
-    fig, ax = plt.subplots()
-    sns.heatmap(cm, annot=True, cmap="crest", fmt="g")
-    st.pyplot(fig)
+        # Prediction
+        y_pred = model.predict(X_aligned)
 
-    st.dataframe(pd.DataFrame(classification_report(y_true, y_pred, output_dict=True)))
+        # Accuracy
+        acc = accuracy_score(y_true, y_pred)
+        st.metric(label="Model Accuracy", value=f"{acc*100:.2f}%")
+
+        # Confusion Matrix
+        cm = confusion_matrix(y_true, y_pred)
+        fig3, ax3 = plt.subplots(figsize=(6, 4))
+        sns.heatmap(cm, annot=True, cmap='crest', fmt='g')
+        plt.xlabel('Predicted'); plt.ylabel('Actual'); plt.title('Confusion Matrix')
+        st.pyplot(fig3)
+
+        # Classification report
+        report = classification_report(y_true, y_pred, output_dict=True)
+        st.dataframe(pd.DataFrame(report).transpose(), use_container_width=True)
+
     st.markdown("</div>", unsafe_allow_html=True)
+
 
 # TAB 5: Prediction Panel
 with tabs[4]:
@@ -221,9 +262,11 @@ with tabs[4]:
 
     if st.button("🔍 Predict Mental Health Risk"):
         user_df = pd.DataFrame([user_input])
-        user_df_aligned = align_features(user_df.copy(), model)
+        user_df_aligned = align_features(user_df, model)
+
         prediction = model.predict(user_df_aligned)[0]
-        probs = model.predict_proba(user_df_aligned)[0]
+        proba = model.predict_proba(user_df_aligned)[0]
+
 
         st.subheader(f"Predicted Risk: {prediction}")
 
