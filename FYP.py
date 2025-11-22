@@ -291,7 +291,7 @@ with tabs[4]:
             for cls, p in proba_dict.items():
                 record[f"proba_{cls}"] = round(float(p), 6)
 
-            log_user_record(record)
+            
             # ====================================================
 
         except Exception as e:
