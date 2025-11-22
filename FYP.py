@@ -149,7 +149,7 @@ with tabs[1]:
     st.pyplot(fig)
 
 # ====================================================
-# TAB 3 — FEATURE IMPORTANCE
+# TAB 3 — FEATURE IMPORTANCE (PETRONAS THEME)
 # ====================================================
 with tabs[2]:
     st.header("📈 Feature Importance")
@@ -157,26 +157,47 @@ with tabs[2]:
     rf = model.named_steps["clf"]
     importances = rf.feature_importances_
 
+    # Extract One-Hot Encoded column names
     ohe = preproc.named_transformers_["cat"]["onehot"]
     ohe_cols = ohe.get_feature_names_out(categorical_features)
 
     final_features = list(numeric_features) + list(ohe_cols)
 
+    # Create DataFrame sorted by importance
     df_importance = pd.DataFrame({
         "Feature": final_features,
         "Importance": importances
     }).sort_values(by="Importance", ascending=False)
 
+    # Display Top 20 importance table
+    st.subheader("🔝 Top 20 Features")
     st.dataframe(df_importance.head(20))
 
-    fig, ax = plt.subplots(figsize=(10,6))
+    # ==============================
+    # PETRONAS-THEMED BAR CHART
+    # ==============================
+    petronas_colors = ["#009690", "#00C4B3", "#005A57"]
+
+    top10 = df_importance.head(10)
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
     sns.barplot(
-        data=df_importance.head(10),
-        x="Importance", y="Feature",
-        palette="Blues_r"
+        data=top10,
+        x="Importance",
+        y="Feature",
+        palette=petronas_colors
     )
-    ax.set_title("Top 10 Feature Importances")
+
+    ax.set_title("Top 10 Feature Importances", fontsize=16, fontweight="bold")
+    ax.set_xlabel("Importance Score", fontsize=12)
+    ax.set_ylabel("Feature Name", fontsize=12)
+
+    # Clean chart look
+    sns.despine(left=True, bottom=True)
+
     st.pyplot(fig)
+
 
 # ====================================================
 # TAB 4 — MODEL EVALUATION
