@@ -1,157 +1,57 @@
-# ============================================================
-# PETRONAS-STYLE RESPONSIVE DASHBOARD (Streamlit)
-# Author: Adrian Anthony A/L R. Vikneswaran (UTP)
-# ============================================================
-
 import streamlit as st
 import pandas as pd
 import numpy as np
-import os
 import joblib
-import seaborn as sns
+import warnings
+warnings.filterwarnings("ignore")
+
 import matplotlib.pyplot as plt
-import plotly.express as px
-from sklearn.metrics import confusion_matrix, classification_report, accuracy_score
-from datetime import datetime  # <-- added for timestamp
+import seaborn as sns
+from sklearn.metrics import confusion_matrix, accuracy_score
+import os
+from datetime import datetime
 
-# ----------------------------------------
-# PAGE CONFIGURATION
-# ----------------------------------------
-st.set_page_config(
-    page_title="Digital Wellbeing & Mental Health Risk Dashboard",
-    page_icon="🧠",
-    layout="wide"
-)
 
-# ----------------------------------------
-# STYLE SETTINGS
-# ----------------------------------------
-st.markdown("""
-<style>
-    body {
-        background: linear-gradient(135deg, #DFF7F9 0%, #F8FBFC 100%);
-        color: #1E1E1E;
-        font-family: 'Helvetica Neue', sans-serif;
-    }
-    h1, h2, h3, h4 {
-        color: #007C91;
-        font-weight: 700;
-    }
-    .main-card {
-        background-color: white;
-        border-radius: 16px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-        padding: 20px 25px;
-        margin-bottom: 20px;
-    }
-    .stButton>button {
-        border-radius: 10px;
-        font-weight: 600;
-        width: 100%;
-        height: 50px;
-    }
-    div.stButton > button:first-child {
-        background-color: #007C91;
-        color: white;
-    }
-    div.stButton > button:first-child:hover {
-        background-color: #005C68;
-    }
-    div.stButton > button:last-child {
-        background-color: #E0E0E0;
-        color: #333;
-    }
-    div.stButton > button:last-child:hover {
-        background-color: #BDBDBD;
-    }
-</style>
-""", unsafe_allow_html=True)
 
-# ----------------------------------------
-# HEADER
-# ----------------------------------------
-st.markdown("""
-<div style='text-align:center;'>
-    <h1>🧠 Digital Wellbeing & Mental Health Risk Dashboard</h1>
-    <p style='font-size:18px; color:#475569;'>Universiti Teknologi PETRONAS</p>
-    <hr style='border: 1px solid #CCE5E9;'>
-</div>
-""", unsafe_allow_html=True)
 
-# ----------------------------------------
-# BACKEND EXCEL LOGGING
-# ----------------------------------------
-PRED_EXCEL_PATH = "dashboard_predictions.xlsx"
 
-def save_prediction_to_excel(record: dict, excel_path: str = PRED_EXCEL_PATH):
-    """Append a prediction record to an Excel file (backend only, invisible to user)."""
-    df_new = pd.DataFrame([record])
+# ====================================================
+# 1. LOAD TRAINED MODEL
+# ====================================================
+MODEL_PATH = "RandomForest_best_pipeline1.pkl"
 
-    if os.path.exists(excel_path):
-        try:
-            df_existing = pd.read_excel(excel_path)
-            df_out = pd.concat([df_existing, df_new], ignore_index=True)
-        except Exception:
-            df_out = df_new
-    else:
-        df_out = df_new
-
-    df_out.to_excel(excel_path, index=False, engine="openpyxl")
-
-# ----------------------------------------
-# LOAD DATA & MODEL
-# ----------------------------------------
-data_path = "digital_wellbeing_dataset_binned.csv"
-model_path = "RandomForest_best_pipeline.joblib"
-
-df = pd.read_csv(data_path)
-if os.path.exists(model_path):
-    model = joblib.load(model_path)
-else:
-    st.error("⚠️ Model file not found! Please make sure RandomForest_best_pipeline.joblib is in this folder.")
-    st.stop()
-
-target_col = "mh_risk"
-
-# ----------------------------------------
-# ALIGNMENT FUNCTION
-# ----------------------------------------
-def align_features(input_df: pd.DataFrame, model) -> pd.DataFrame:
-    """
-    Align input_df columns to what the trained pipeline expects.
-    - Adds any missing columns as 0
-    - Orders columns exactly as in training
-    If anything fails, returns input_df unchanged.
-    """
+@st.cache_resource
+def load_model():
     try:
-        # Works for sklearn Pipeline with a 'preproc' step (ColumnTransformer)
-        preproc = model.named_steps.get('preproc', None)
-        if preproc is None:
-            return input_df
+        model = joblib.load(MODEL_PATH)
+        return model
+    except Exception as e:
+        st.error("❌ Failed to load model.")
+        st.error(e)
+        st.stop()
 
-        expected = getattr(preproc, "feature_names_in_", None)
-        if expected is None:
-            # Older sklearn: feature_names_in_ may not exist
-            return input_df
+model = load_model()
 
-        expected = list(expected)
+# Pull feature names from preprocessing
+preproc = model.named_steps["preproc"]
+numeric_features = preproc.transformers_[0][2]
+categorical_features = preproc.transformers_[1][2]
+ALL_FEATURES = list(numeric_features) + list(categorical_features)
 
-        # Add missing columns with 0
-        for col in expected:
-            if col not in input_df.columns:
-                input_df[col] = 0
+# ====================================================
+# 2. LOAD DATASET
+# ====================================================
+DATA_PATH = "digital_wellbeing_dataset.csv"
 
-        # Drop any extra columns the model doesn't know about
-        aligned = input_df[expected].copy()
-        return aligned
-    except Exception:
-        # In worst case, just return as-is
-        return input_df
+@st.cache_resource
+def load_dataset():
+    return pd.read_csv(DATA_PATH)
 
+df = load_dataset()
 
-# ----------------------------------------
-# TAB SETUP
-# ----------------------------------------
+# ====================================================
+# 3. MAIN TABS
+# ====================================================
 tabs = st.tabs([
     "📘 Dataset Overview",
     "📊 Correlation Analysis",
@@ -160,145 +60,241 @@ tabs = st.tabs([
     "🤖 Prediction Panel"
 ])
 
-# TAB 1: Dataset Overview
+# ====================================================
+# TAB 1 — DATASET OVERVIEW
+# ====================================================
 with tabs[0]:
-    st.markdown("<div class='main-card'>", unsafe_allow_html=True)
     st.header("📘 Dataset Overview")
-    st.dataframe(df.head(), use_container_width=True)
+    st.subheader("🔍 Dataset Preview")
+    st.dataframe(df.head())
 
-    st.subheader("Class Distribution")
-    fig = px.pie(df, names=target_col, hole=0.4)
-    st.plotly_chart(fig, use_container_width=True)
-    st.markdown("</div>", unsafe_allow_html=True)
+    st.subheader("📊 Class Distribution Detection")
 
-# TAB 2: Correlation
-with tabs[1]:
-    st.markdown("<div class='main-card'>", unsafe_allow_html=True)
-    st.header("📊 Correlation Analysis")
-    corr = df.corr(numeric_only=True)
-    fig, ax = plt.subplots(figsize=(10, 6))
-    sns.heatmap(corr, annot=True, cmap="BuGn")
-    st.pyplot(fig)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-# TAB 3: Feature Importance
-with tabs[2]:
-    st.markdown("<div class='main-card'>", unsafe_allow_html=True)
-    st.header("📈 Feature Importance")
-    feat_names = model.named_steps['preproc'].get_feature_names_out()
-    feat_vals = model.named_steps['clf'].feature_importances_
-    feat_df = pd.DataFrame({"Feature": feat_names, "Importance": feat_vals})
-    feat_df = feat_df.sort_values("Importance", ascending=False).head(15)
-    fig = px.bar(feat_df, x="Importance", y="Feature", orientation="h")
-    st.plotly_chart(fig, use_container_width=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-
-# ----------------------------------------
-# TAB 4: Model Evaluation
-# ----------------------------------------
-with tabs[3]:
-    st.markdown("<div class='main-card'>", unsafe_allow_html=True)
-    st.header("🧮 Model Evaluation")
-
-    if target_col in df.columns:
-        # No extra indentation here 👇
-        X = df.drop(columns=[target_col])
-        y_true = df[target_col]
-
-        # Align features BEFORE predict
-        X_aligned = align_features(X, model)
-
-        # Prediction
-        y_pred = model.predict(X_aligned)
-
-        # Accuracy
-        acc = accuracy_score(y_true, y_pred)
-        st.metric(label="Model Accuracy", value=f"{acc*100:.2f}%")
-
-        # Confusion Matrix
-        cm = confusion_matrix(y_true, y_pred)
-        fig3, ax3 = plt.subplots(figsize=(6, 4))
-        sns.heatmap(cm, annot=True, cmap='crest', fmt='g')
-        plt.xlabel('Predicted'); plt.ylabel('Actual'); plt.title('Confusion Matrix')
-        st.pyplot(fig3)
-
-        # Classification report
-        report = classification_report(y_true, y_pred, output_dict=True)
-        st.dataframe(pd.DataFrame(report).transpose(), use_container_width=True)
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-
-# TAB 5: Prediction Panel
-with tabs[4]:
-    st.markdown("<div class='main-card'>", unsafe_allow_html=True)
-    st.header("🤖 Prediction Panel")
-
-    original_features = [
-        'Daily_Screen_Time_Hours',
-        'Phone_Unlocks_Per_Day',
-        'Social_Media_Usage_Hours',
-        'Gaming_Usage_Hours',
-        'Streaming_Usage_Hours',
-        'Messaging_Usage_Hours',
-        'Sleep_Hours',
-        'Physical_Activity_Hours',
-        'Stress_Level',
-        'Self_Reported_Addiction_Level'
+    possible_targets = [
+        "mh_risk", "risk_level", "mh_risk_binned", "risk",
+        "mental_health", "mental_health_score",
+        "wellbeing_score", "stress", "stress_level",
+        "anxiety", "anxiety_level",
+        "depression", "depression_level"
     ]
 
-    user_input = {}
-    col1, col2 = st.columns(2)
+    df_cols_lower = {c.lower(): c for c in df.columns}
+    label_col = None
 
-    for i, col in enumerate(original_features):
-        if df[col].dtype in ['int64', 'float64']:
-            min_v, max_v, def_v = df[col].min(), df[col].max(), df[col].mean()
-            widget = col1.slider if i % 2 == 0 else col2.slider
-            user_input[col] = widget(col, float(min_v), float(max_v), float(def_v))
+    # Auto-detect target
+    for t in possible_targets:
+        if t.lower() in df_cols_lower:
+            label_col = df_cols_lower[t.lower()]
+            break
+
+    # Fallback: any “risk” column
+    if label_col is None:
+        for c in df.columns:
+            if "risk" in c.lower():
+                label_col = c
+                break
+
+    if label_col is None:
+        st.error("⚠️ Target column not found in dataset.")
+    else:
+        st.success(f"Detected target column: **{label_col}**")
+
+        if pd.api.types.is_numeric_dtype(df[label_col]):
+            st.info("Detected numeric target → Binning into Low/Medium/High")
+            df["__temp_target__"] = pd.qcut(
+                df[label_col], q=3, labels=["Low", "Medium", "High"]
+            )
+            plot_col = "__temp_target__"
         else:
-            widget = col1.selectbox if i % 2 == 0 else col2.selectbox
-            user_input[col] = widget(col, df[col].unique().tolist())
+            plot_col = label_col
 
-    if st.button("🔍 Predict Mental Health Risk"):
-        user_df = pd.DataFrame([user_input])
-        user_df_aligned = align_features(user_df, model)
+        class_counts = df[plot_col].value_counts()
 
-        prediction = model.predict(user_df_aligned)[0]
-        proba = model.predict_proba(user_df_aligned)[0]
+        fig, ax = plt.subplots(figsize=(5,5))
+        ax.pie(
+            class_counts,
+            labels=class_counts.index,
+            autopct="%1.1f%%",
+            startangle=90,
+            pctdistance=0.8,
+            wedgeprops=dict(width=0.35)
+        )
+        ax.set_title("Class Distribution")
+        st.pyplot(fig)
 
+# ====================================================
+# TAB 2 — CORRELATION
+# ====================================================
+with tabs[1]:
+    st.header("📊 Correlation Analysis")
 
-        st.subheader(f"Predicted Risk: {prediction}")
+    num_df = df.select_dtypes(include=['int64', 'float64'])
+    corr = num_df.corr()
 
-        # Risk Message
-        if prediction == "High":
-            st.error("⚠️ High Risk — Seek professional guidance and review your habits.")
-        elif prediction == "Medium":
-            st.warning("🟡 Moderate Risk — Balance your digital and daily routines.")
-        else:
-            st.success("🟢 Low Risk — Your digital habits are healthy!")
+    fig, ax = plt.subplots(figsize=(12,8))
+    sns.heatmap(corr, cmap="viridis", square=False)
+    st.pyplot(fig)
 
-        # Backend Excel Logging
-        record = {
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            **user_input,
-            "prediction": prediction,
-            "proba_low": probs[0],
-            "proba_medium": probs[1],
-            "proba_high": probs[2]
-        }
-        save_prediction_to_excel(record)
+# ====================================================
+# TAB 3 — FEATURE IMPORTANCE
+# ====================================================
+with tabs[2]:
+    st.header("📈 Feature Importance")
 
-    st.markdown("</div>", unsafe_allow_html=True)
+    rf = model.named_steps["clf"]
+    importances = rf.feature_importances_
 
-# ----------------------------------------
-# FOOTER (UPDATED)
-# ----------------------------------------
-st.markdown("""
----
-<div style='text-align:center; font-size:14px; color:#475569;'>
-    📊 Dashboard created by <strong>Adrian Anthony (UTP)</strong><br>
-    Built with <strong>Streamlit</strong> | Random Forest Model | Responsive UI Design
-</div>
----
-""", unsafe_allow_html=True)
+    ohe = preproc.named_transformers_["cat"]["onehot"]
+    ohe_cols = ohe.get_feature_names_out(categorical_features)
+
+    final_features = list(numeric_features) + list(ohe_cols)
+
+    df_importance = pd.DataFrame({
+        "Feature": final_features,
+        "Importance": importances
+    }).sort_values(by="Importance", ascending=False)
+
+    st.dataframe(df_importance.head(20))
+
+    fig, ax = plt.subplots(figsize=(10,6))
+    sns.barplot(
+        data=df_importance.head(10),
+        x="Importance", y="Feature",
+        palette="Blues_r"
+    )
+    ax.set_title("Top 10 Feature Importances")
+    st.pyplot(fig)
+
+# ====================================================
+# TAB 4 — MODEL EVALUATION
+# ====================================================
+with tabs[3]:
+    st.header("🧮 Model Evaluation")
+
+    try:
+        X_test = joblib.load("X_test.pkl")
+        y_test = joblib.load("y_test.pkl")
+
+        y_pred = model.predict(X_test)
+        acc = accuracy_score(y_test, y_pred)
+
+        st.metric("Model Accuracy", f"{acc*100:.2f}%")
+
+        cm = confusion_matrix(y_test, y_pred, labels=model.classes_)
+
+        fig, ax = plt.subplots(figsize=(7,5))
+        sns.heatmap(
+            cm, annot=True, cmap="Blues", fmt="d",
+            xticklabels=model.classes_,
+            yticklabels=model.classes_
+        )
+        ax.set_title("Confusion Matrix")
+        st.pyplot(fig)
+
+    except Exception as e:
+        st.error("❌ Could not load X_test.pkl or y_test.pkl")
+        st.error(e)
+
+# ====================================================
+# TAB 5 — PREDICTION PANEL
+# ====================================================
+with tabs[4]:
+    st.header("🤖 Prediction Panel")
+    st.write("Enter your information below:")
+
+    age = st.number_input("Age", 1, 100, 21)
+    tech = st.number_input("Daily Technology Usage (hours)", 0.0, 24.0, 3.0)
+    social = st.number_input("Social Media Usage (hours)", 0.0, 24.0, 2.0)
+    gaming = st.number_input("Gaming Usage (hours)", 0.0, 24.0, 1.0)
+    screen = st.number_input("Daily Screen Time (hours)", 0.0, 24.0, 6.0)
+    stress = st.number_input("Stress Level (0–10)", 0.0, 10.0, 5.0)
+    sleep = st.number_input("Sleep Duration (hours)", 0.0, 24.0, 7.0)
+    activity = st.number_input("Physical Activity (hours)", 0.0, 24.0, 1.0)
+
+    user_input = {
+        "Age": age,
+        "Technology_Usage_Hours": tech,
+        "Social_Media_Usage_Hours": social,
+        "Gaming_Usage_Hours": gaming,
+        "Daily_Screen_Time_Hours": screen,
+        "Stress_Level": stress,
+        "Sleep_Hours": sleep,
+        "Physical_Activity_Hours": activity
+    }
+
+    df_user = pd.DataFrame([user_input])
+
+    # Column alignment
+    def align(df, cols):
+        new = df.copy()
+        for c in cols:
+            if c not in new:
+                new[c] = 0
+        return new[cols]
+
+    df_aligned = align(df_user, ALL_FEATURES)
+
+    if st.button("Predict Risk Level"):
+        try:
+            pred = model.predict(df_aligned)[0]
+            probs = model.predict_proba(df_aligned)[0]
+            confidence = max(probs) * 100
+
+            st.success(f"### 🧠 Predicted Risk Level: **{pred}**")
+
+            if hasattr(model, "predict_proba"):
+                st.subheader("📊 Probability Breakdown")
+                for cls, p in zip(model.classes_, probs):
+                    st.write(f"**{cls}** → {p*100:.2f}%")
+
+            st.subheader("📝 Personalized Recommendations")
+
+            if pred.lower() == "low":
+                st.info("""
+                ✔ You are in **Low Risk**.
+                - Maintain healthy sleep routines (7–9 hours daily).
+                - Continue balancing digital usage with physical activities.
+                - Keep positive social interactions both online & offline.
+                """)
+
+            elif pred.lower() == "medium":
+                st.warning("""
+                ⚠ You are in **Moderate Risk**.
+                - Reduce screen time, especially at night.
+                - Exercise at least 30 minutes a day.
+                - Take digital breaks: 10 minutes every hour.
+                - Monitor your mood and stress regularly.
+                """)
+
+            elif pred.lower() == "high":
+                st.error("""
+                🔥 You are in **High Risk**.
+                - Seek support from a counsellor or mental health professional.
+                - Limit gaming & social media to reduce digital overload.
+                - Practice mindfulness (breathing, meditation, journaling).
+                - Build a consistent sleep routine.
+                - Engage in outdoor physical activities daily.
+                """)
+
+            # ====================================================
+            # SECURE BACKEND LOGGING (NEW)
+            # ====================================================
+            proba_dict = dict(zip(model.classes_, probs))
+
+            record = {
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                **df_user.iloc[0].to_dict(),
+                "prediction": pred,
+                "confidence_pct": round(confidence, 2)
+            }
+
+            for cls, p in proba_dict.items():
+                record[f"proba_{cls}"] = round(float(p), 6)
+
+            log_user_record(record)
+            # ====================================================
+
+        except Exception as e:
+            st.error("Prediction failed.")
+            st.error(e)
+
