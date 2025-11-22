@@ -136,7 +136,7 @@ with tabs[0]:
 
 
 # ====================================================
-# TAB 2 — CORRELATION
+# TAB 2 — CORRELATION ANALYSIS (PETRONAS THEME)
 # ====================================================
 with tabs[1]:
     st.header("📊 Correlation Analysis")
@@ -144,9 +144,40 @@ with tabs[1]:
     num_df = df.select_dtypes(include=['int64', 'float64'])
     corr = num_df.corr()
 
-    fig, ax = plt.subplots(figsize=(12,8))
-    sns.heatmap(corr, cmap="viridis", square=False)
+    # PETRONAS Gradient Color Map
+    from matplotlib.colors import LinearSegmentedColormap
+
+    petronas_cmap = LinearSegmentedColormap.from_list(
+        "petronas_cmap",
+        ["#005A57", "#009690", "#00C4B3"],
+        N=256
+    )
+
+    fig, ax = plt.subplots(figsize=(12, 8))
+
+    sns.heatmap(
+        corr,
+        cmap=petronas_cmap,
+        annot=False,
+        linewidths=0.5,
+        linecolor="white",
+        cbar_kws={"shrink": 0.6},
+        square=False
+    )
+
+    ax.set_title(
+        "Correlation Heatmap ",
+        fontsize=18,
+        fontweight="bold",
+        pad=15
+    )
+
+    plt.xticks(rotation=45, ha="right", fontsize=10)
+    plt.yticks(rotation=0, fontsize=10)
+
     st.pyplot(fig)
+
+
 
 # ====================================================
 # TAB 3 — FEATURE IMPORTANCE (PETRONAS THEME)
