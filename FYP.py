@@ -61,7 +61,7 @@ tabs = st.tabs([
 ])
 
 # ====================================================
-# TAB 1 — DATASET OVERVIEW
+# TAB 1 — DATASET OVERVIEW (WITH PETRONAS DOUGHNUT CHART)
 # ====================================================
 with tabs[0]:
     st.header("📘 Dataset Overview")
@@ -81,13 +81,13 @@ with tabs[0]:
     df_cols_lower = {c.lower(): c for c in df.columns}
     label_col = None
 
-    # Auto-detect target
+    # Auto-detect target column
     for t in possible_targets:
         if t.lower() in df_cols_lower:
             label_col = df_cols_lower[t.lower()]
             break
 
-    # Fallback: any “risk” column
+    # Secondary fallback: any column containing "risk"
     if label_col is None:
         for c in df.columns:
             if "risk" in c.lower():
@@ -99,8 +99,9 @@ with tabs[0]:
     else:
         st.success(f"Detected target column: **{label_col}**")
 
+        # Auto-binning if numeric
         if pd.api.types.is_numeric_dtype(df[label_col]):
-            st.info("Detected numeric target → Binning into Low/Medium/High")
+            st.info("Detected numeric target → Binning into Low / Medium / High")
             df["__temp_target__"] = pd.qcut(
                 df[label_col], q=3, labels=["Low", "Medium", "High"]
             )
@@ -108,19 +109,31 @@ with tabs[0]:
         else:
             plot_col = label_col
 
+        # Value counts
         class_counts = df[plot_col].value_counts()
 
-        fig, ax = plt.subplots(figsize=(5,5))
-        ax.pie(
+        # PETRONAS COLORS
+        petronas_colors = ["#009690", "#00C4B3", "#005A57"]
+
+        # DOUGHNUT CHART
+        fig, ax = plt.subplots(figsize=(6, 6))
+
+        wedges, texts, autotexts = ax.pie(
             class_counts,
             labels=class_counts.index,
             autopct="%1.1f%%",
             startangle=90,
-            pctdistance=0.8,
-            wedgeprops=dict(width=0.35)
+            pctdistance=0.80,
+            wedgeprops=dict(width=0.35),
+            colors=petronas_colors[:len(class_counts)]
         )
-        ax.set_title("Class Distribution")
+
+        # Format text color
+        plt.setp(autotexts, color="black", fontweight="bold")
+
+        ax.set_title("Class Distribution", fontsize=18, fontweight="bold")
         st.pyplot(fig)
+
 
 # ====================================================
 # TAB 2 — CORRELATION
